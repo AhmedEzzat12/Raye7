@@ -1,8 +1,10 @@
 package com.raye7task;
 
 import android.Manifest;
+import android.app.ProgressDialog;
 import android.content.Intent;
 import android.content.pm.PackageManager;
+import android.graphics.Color;
 import android.location.Address;
 import android.location.Geocoder;
 import android.location.Location;
@@ -16,6 +18,12 @@ import android.view.View;
 import android.widget.EditText;
 import android.widget.Toast;
 
+import com.android.volley.Request;
+import com.android.volley.RequestQueue;
+import com.android.volley.Response;
+import com.android.volley.VolleyError;
+import com.android.volley.toolbox.StringRequest;
+import com.android.volley.toolbox.Volley;
 import com.google.android.gms.common.GoogleApiAvailability;
 import com.google.android.gms.common.GooglePlayServicesNotAvailableException;
 import com.google.android.gms.common.GooglePlayServicesRepairableException;
@@ -32,21 +40,32 @@ import com.google.android.gms.maps.model.BitmapDescriptorFactory;
 import com.google.android.gms.maps.model.LatLng;
 import com.google.android.gms.maps.model.Marker;
 import com.google.android.gms.maps.model.MarkerOptions;
+import com.google.android.gms.maps.model.Polyline;
+import com.google.android.gms.maps.model.PolylineOptions;
 import com.google.android.gms.tasks.OnSuccessListener;
 
+import org.json.JSONArray;
+import org.json.JSONException;
+import org.json.JSONObject;
+
 import java.io.IOException;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
 
 public class MapsActivity extends AppCompatActivity implements OnMapReadyCallback, GoogleMap.OnMyLocationButtonClickListener, OnSuccessListener<Location>, GoogleMap.OnMapLongClickListener {
-    private static final int LOCATION_PERM_REQ_CODE = 0;
+    private static final int LOCATION_PERM_REQ_CODE = 100;
     private static final int REQUEST_CODE_AUTOCOMPLETE_FROM = 1;
     private static final int REQUEST_CODE_AUTOCOMPLETE_TO = 2;
-    private GoogleMap mMap;
+    private static final String TAG = MapsActivity.class.getName();
+    private static final String ApiKey = "AIzaSyCYVyDE2Cj3LHGV6j5Jd8ivc9X_Aiy2tlg";
+    public ProgressDialog progressDialog;
+    private GoogleMap mapObj;
     private EditText[] edArr;
     private FusedLocationProviderClient mFusedLocationClient;
     private Marker fromMarker;
     private Marker toMarker;
+    private Polyline line;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -75,6 +94,7 @@ public class MapsActivity extends AppCompatActivity implements OnMapReadyCallbac
                 startAutoCompleteForTo();
             }
         });
+
         // Obtain the SupportMapFragment and get notified when the map is ready to be used.
         SupportMapFragment mapFragment = (SupportMapFragment) getSupportFragmentManager()
                 .findFragmentById(R.id.map);
@@ -83,19 +103,13 @@ public class MapsActivity extends AppCompatActivity implements OnMapReadyCallbac
 
     private void startAutoCompleteForTo() {
         try {
-            // The autocomplete activity requires Google Play Services to be available. The intent
-            // builder checks this and throws an exception if it is not the case.
             Intent intent = new PlaceAutocomplete.IntentBuilder(PlaceAutocomplete.MODE_OVERLAY)
                     .build(this);
             startActivityForResult(intent, REQUEST_CODE_AUTOCOMPLETE_TO);
         } catch (GooglePlayServicesRepairableException e) {
-            // Indicates that Google Play Services is either not installed or not up to date. Prompt
-            // the user to correct the issue.
             GoogleApiAvailability.getInstance().getErrorDialog(this, e.getConnectionStatusCode(),
-                    0 /* requestCode */).show();
+                    0).show();
         } catch (GooglePlayServicesNotAvailableException e) {
-            // Indicates that Google Play Services is not available and the problem is not easily
-            // resolvable.
             String message = "Google Play Services is not available: " +
                     GoogleApiAvailability.getInstance().getErrorString(e.errorCode);
 
@@ -105,19 +119,13 @@ public class MapsActivity extends AppCompatActivity implements OnMapReadyCallbac
 
     private void startAutoCompleteForFrom() {
         try {
-            // The autocomplete activity requires Google Play Services to be available. The intent
-            // builder checks this and throws an exception if it is not the case.
             Intent intent = new PlaceAutocomplete.IntentBuilder(PlaceAutocomplete.MODE_OVERLAY)
                     .build(this);
             startActivityForResult(intent, REQUEST_CODE_AUTOCOMPLETE_FROM);
         } catch (GooglePlayServicesRepairableException e) {
-            // Indicates that Google Play Services is either not installed or not up to date. Prompt
-            // the user to correct the issue.
             GoogleApiAvailability.getInstance().getErrorDialog(this, e.getConnectionStatusCode(),
-                    0 /* requestCode */).show();
+                    0).show();
         } catch (GooglePlayServicesNotAvailableException e) {
-            // Indicates that Google Play Services is not available and the problem is not easily
-            // resolvable.
             String message = "Google Play Services is not available: " +
                     GoogleApiAvailability.getInstance().getErrorString(e.errorCode);
 
@@ -128,19 +136,21 @@ public class MapsActivity extends AppCompatActivity implements OnMapReadyCallbac
 
     @Override
     public void onMapReady(GoogleMap googleMap) {
-        mMap = googleMap;
+        mapObj = googleMap;
         if (ActivityCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION)
                 == PackageManager.PERMISSION_GRANTED && ActivityCompat.checkSelfPermission(this, Manifest.permission.ACCESS_COARSE_LOCATION)
                 == PackageManager.PERMISSION_GRANTED) {
-            mMap.setMyLocationEnabled(true);
+            mapObj.setMyLocationEnabled(true);
         } else {
             // Show rationale and request permission.
             Log.e("map", " permession denied");
             ActivityCompat.requestPermissions(this, new String[]{Manifest.permission.ACCESS_FINE_LOCATION
                     , Manifest.permission.ACCESS_COARSE_LOCATION}, LOCATION_PERM_REQ_CODE);
         }
-        mMap.setOnMyLocationButtonClickListener(this);
-        mMap.setOnMapLongClickListener(this);
+        mapObj.setOnMyLocationButtonClickListener(this);
+        mapObj.setOnMapLongClickListener(this);
+        mapObj.setTrafficEnabled(true);
+
     }
 
     @Override
@@ -150,7 +160,7 @@ public class MapsActivity extends AppCompatActivity implements OnMapReadyCallbac
                 if (ActivityCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION)
                         == PackageManager.PERMISSION_GRANTED && ActivityCompat.checkSelfPermission(this, Manifest.permission.ACCESS_COARSE_LOCATION)
                         == PackageManager.PERMISSION_GRANTED) {
-                    mMap.setMyLocationEnabled(true);
+                    mapObj.setMyLocationEnabled(true);
                 }
                 break;
         }
@@ -166,14 +176,12 @@ public class MapsActivity extends AppCompatActivity implements OnMapReadyCallbac
                         fromMarker.remove();
                     Place place = PlaceAutocomplete.getPlace(this, data);
                     edArr[0].setText(place.getName());
-                    fromMarker = mMap.addMarker(new MarkerOptions().position(place.getLatLng()).title(place.getName().toString()));
-                    mMap.animateCamera(CameraUpdateFactory.newLatLngZoom(place.getLatLng(), 16));
-
+                    fromMarker = mapObj.addMarker(new MarkerOptions().position(place.getLatLng()).title(place.getName().toString()));
+                    mapObj.animateCamera(CameraUpdateFactory.newLatLngZoom(place.getLatLng(), 16));
                     Log.i("OnActivityResult ", "Place: " + place.getName());
                 } else if (resultCode == PlaceAutocomplete.RESULT_ERROR) {
                     Status status = PlaceAutocomplete.getStatus(this, data);
                     Log.e("OnActivityResult e1", status.getStatusMessage());
-
                 } else {
                     Log.i("OnActivityResult e2", "The user canceled the operation.");
                 }
@@ -184,9 +192,9 @@ public class MapsActivity extends AppCompatActivity implements OnMapReadyCallbac
                         toMarker.remove();
                     Place place = PlaceAutocomplete.getPlace(this, data);
                     edArr[1].setText(place.getName());
-                    toMarker = mMap.addMarker(new MarkerOptions().position(place.getLatLng()).title(place.getName().toString()));
+                    toMarker = mapObj.addMarker(new MarkerOptions().position(place.getLatLng()).title(place.getName().toString()));
                     toMarker.setIcon(BitmapDescriptorFactory.defaultMarker(BitmapDescriptorFactory.HUE_GREEN));
-                    mMap.animateCamera(CameraUpdateFactory.newLatLngZoom(place.getLatLng(), 16));
+                    mapObj.animateCamera(CameraUpdateFactory.newLatLngZoom(place.getLatLng(), 16));
 
                     Log.i("OnActivityResult ", "Place: " + place.getName());
                 } else if (resultCode == PlaceAutocomplete.RESULT_ERROR) {
@@ -198,18 +206,27 @@ public class MapsActivity extends AppCompatActivity implements OnMapReadyCallbac
                 }
                 break;
         }
+        showRoute();
+    }
+
+    private void showRoute() {
+        if (fromMarker != null && toMarker != null) {
+            if (line != null)
+                line.remove();
+            getDirectionData(makeUrl(fromMarker.getPosition(), toMarker.getPosition()));
+
+
+        }
     }
 
     @Override
     public boolean onMyLocationButtonClick() {
-
         if (ActivityCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION)
                 == PackageManager.PERMISSION_GRANTED && ActivityCompat.checkSelfPermission(this, Manifest.permission.ACCESS_COARSE_LOCATION)
                 == PackageManager.PERMISSION_GRANTED) {
             mFusedLocationClient.getLastLocation()
                     .addOnSuccessListener(this);
         } else {
-            // Show rationale and request permission.
             Log.e("map", " permession denied");
             ActivityCompat.requestPermissions(this, new String[]{Manifest.permission.ACCESS_FINE_LOCATION
                     , Manifest.permission.ACCESS_COARSE_LOCATION}, LOCATION_PERM_REQ_CODE);
@@ -226,10 +243,11 @@ public class MapsActivity extends AppCompatActivity implements OnMapReadyCallbac
             if (fromMarker != null)
                 fromMarker.remove();
             if (City != null) {
-                fromMarker = mMap.addMarker(new MarkerOptions().position(new LatLng(location.getLatitude(), location.getLongitude())).title(City));
+                fromMarker = mapObj.addMarker(new MarkerOptions().position(new LatLng(location.getLatitude(), location.getLongitude())).title(City));
                 Log.d("test", City);
-                mMap.animateCamera(CameraUpdateFactory.newLatLngZoom(new LatLng(location.getLatitude(), location.getLongitude()), 16));
+                mapObj.animateCamera(CameraUpdateFactory.newLatLngZoom(new LatLng(location.getLatitude(), location.getLongitude()), 16));
                 edArr[0].setText(City);
+                showRoute();
             } else
                 Toast.makeText(this, "can't find city", Toast.LENGTH_LONG).show();
         }
@@ -244,16 +262,18 @@ public class MapsActivity extends AppCompatActivity implements OnMapReadyCallbac
         if (fromMarker != null)
             fromMarker.remove();
         if (addressLine != null) {
-            fromMarker = mMap.addMarker(new MarkerOptions().position(new LatLng(latLng.latitude, latLng.longitude)).title(addressLine));
+            fromMarker = mapObj.addMarker(new MarkerOptions().position(new LatLng(latLng.latitude, latLng.longitude)).title(addressLine));
             Log.d("test", addressLine);
-            mMap.animateCamera(CameraUpdateFactory.newLatLngZoom(new LatLng(latLng.latitude, latLng.longitude), 16));
+            mapObj.animateCamera(CameraUpdateFactory.newLatLngZoom(new LatLng(latLng.latitude, latLng.longitude), 16));
             edArr[1].setText(addressLine);
         } else {
-            fromMarker = mMap.addMarker(new MarkerOptions().position(new LatLng(latLng.latitude, latLng.longitude)).title(City));
+            //set city instead of address
+            fromMarker = mapObj.addMarker(new MarkerOptions().position(new LatLng(latLng.latitude, latLng.longitude)).title(City));
             Log.d("test", City);
-            mMap.animateCamera(CameraUpdateFactory.newLatLngZoom(new LatLng(latLng.latitude, latLng.longitude), 16));
+            mapObj.animateCamera(CameraUpdateFactory.newLatLngZoom(new LatLng(latLng.latitude, latLng.longitude), 16));
             edArr[1].setText(City);
         }
+        showRoute();
     }
 
     public List<Address> getAddressFromLatLan(double latitude, double longitude) {
@@ -271,4 +291,96 @@ public class MapsActivity extends AppCompatActivity implements OnMapReadyCallbac
         return null;
     }
 
+    public String makeUrl(LatLng source, LatLng destination) {
+        return "https://maps.googleapis.com/maps/api/directions/json" +
+                "?origin=" +// from
+                Double.toString(source.latitude) +
+                "," +
+                Double.toString(source.longitude) +
+                "&destination=" +// to
+                Double.toString(destination.latitude) +
+                "," +
+                Double.toString(destination.longitude) +
+                "&sensor=false&mode=driving&alternatives=true" +
+                "&key=" + ApiKey + "";
+    }
+
+    public void getDirectionData(String url) {
+        RequestQueue queue = Volley.newRequestQueue(this);
+        StringRequest stringRequest = new StringRequest(Request.Method.GET, url,
+                new Response.Listener<String>() {
+                    @Override
+                    public void onResponse(String response) {
+                        Log.d("Json Req Res", response);
+                        drawRoute(response);
+                        progressDialog.dismiss();
+                    }
+                }, new Response.ErrorListener() {
+            @Override
+            public void onErrorResponse(VolleyError error) {
+                Toast.makeText(getApplicationContext(), "something wrong happened ", Toast.LENGTH_LONG).show();
+            }
+        });
+        // Add the request to the RequestQueue.
+        queue.add(stringRequest);
+        progressDialog = new ProgressDialog(MapsActivity.this);
+        progressDialog.setMessage("Getting route , please wait ....");
+        progressDialog.setIndeterminate(true);
+        progressDialog.show();
+
+    }
+
+    private void drawRoute(String response) {
+        try {
+            JSONObject json = new JSONObject(response);
+            JSONArray routeArray = json.getJSONArray("routes");
+            JSONObject routes = routeArray.getJSONObject(0);
+            JSONObject overviewPolylines = routes.getJSONObject("overview_polyline");
+            String encodedString = overviewPolylines.getString("points");
+            List<LatLng> list = decodePoly(encodedString);
+            line = mapObj.addPolyline(new PolylineOptions()
+                    .addAll(list)
+                    .width(10)
+                    .color(Color.parseColor("#FFA500"))
+                    .geodesic(true)
+            );
+        } catch (JSONException e) {
+            Log.e(TAG, e.getMessage());
+        }
+    }
+
+    private List<LatLng> decodePoly(String encodedString) {
+        List<LatLng> poly = new ArrayList<>();
+        int index = 0, len = encodedString.length();
+        int lat = 0, lng = 0;
+        while (index < len) {
+            int b, shift = 0, result = 0;
+            do {
+                b = encodedString.charAt(index++) - 63;
+                result |= (b & 0x1f) << shift;
+                shift += 5;
+            } while (b >= 0x20);
+            int dlat = ((result & 1) != 0 ? ~(result >> 1) : (result >> 1));
+            lat += dlat;
+
+            shift = 0;
+            result = 0;
+            do {
+                b = encodedString.charAt(index++) - 63;
+                result |= (b & 0x1f) << shift;
+                shift += 5;
+            } while (b >= 0x20);
+            int dlng = ((result & 1) != 0 ? ~(result >> 1) : (result >> 1));
+            lng += dlng;
+
+            LatLng p = new LatLng((((double) lat / 1E5)),
+                    (((double) lng / 1E5)));
+            poly.add(p);
+        }
+
+        return poly;
+    }
+
 }
+
+
